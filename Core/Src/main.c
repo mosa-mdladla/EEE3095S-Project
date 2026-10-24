@@ -315,6 +315,14 @@ static void handle_frame(char *d)
     else if (strcmp(command, "STATE") == 0
             && strcmp(arguments, "-") == 0)
     {
+        // STATE is not allowed before a game has started.
+        if (game_state == GAME_IDLE)
+        {
+            send_frame(seq, "NACK", "NOGAME");
+            return;
+        }
+
+        // STATE is allowed during a game and after it ends.
         send_frame(seq, "BOARD", game_board);
     }
     

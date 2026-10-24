@@ -420,6 +420,24 @@ static void handle_frame(char *d)
 
         send_frame(seq, "BOARD", game_board);
     }
+    
+    // Handle a player resigning from the current game.
+    else if (strcmp(command, "RESIGN") == 0
+             && strcmp(arguments, "-") == 0)
+    {
+        if (game_state != GAME_IN_PROGRESS)
+        {
+            send_frame(seq, "NACK", "NOGAME");
+            return;
+        }
+
+        // End the current game.
+        game_state = GAME_OVER;
+
+        // Confirm that the game has ended.
+        send_frame(seq, "OK", "GAMEOVER");
+    }
+
     else
     {
         send_frame(seq, "NACK", "BADCMD");

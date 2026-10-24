@@ -37,6 +37,22 @@ FrameStatus frameparser_push(FrameParser *fp, uint8_t byte)
         return PARSING;
     }
 
+    /*
+     * If a new start marker arrives before the current frame ends,
+     * discard the incomplete frame and start collecting the new one.
+     */
+    if (byte == (uint8_t)PROTOCOL_START_MARKER)
+    {
+        fp->length = 0U;
+        fp->started = true;
+        fp->outOfBounds = false;
+
+        fp->data[fp->length] = (char)byte;
+        fp->length++;
+
+        return PARSING;
+    }
+
     // A newline terminates the frame.
     if (byte == (uint8_t)PROTOCOL_FRAME_END)
     {

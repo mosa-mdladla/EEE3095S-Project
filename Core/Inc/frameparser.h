@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include "protocol.h"
 
-typedef enum {PARSING, FINISHED, ERROR} FrameStatus;
+typedef enum {PARSING, FINISHED, FRAME_ERROR} FrameStatus;
 
 //FrameParser struct to store all the bytes received thus far
 typedef struct {

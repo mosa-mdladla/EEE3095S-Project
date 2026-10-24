@@ -15,7 +15,7 @@ void frameparser_init(FrameParser *fp){
 //pushing byte to frame parser
 FrameStatus frameparser_push(FrameParser *fp, uint8_t byte){
     if(fp == NULL){
-        return ERROR;
+        return FRAME_ERROR;
     }
     
     if(!fp->started){   //reads bytes when the start marker is fed through
@@ -25,7 +25,7 @@ FrameStatus frameparser_push(FrameParser *fp, uint8_t byte){
             fp->started = true;
             fp->outOfBounds = false; 
             
-            return fp->data[fp->length++] = (char) byte;
+            fp->data[fp->length++] = (char) byte;
         
         }
         return PARSING;
@@ -39,7 +39,7 @@ FrameStatus frameparser_push(FrameParser *fp, uint8_t byte){
     if(byte == end_marker){
         if (fp -> outOfBounds){
             frameparser_init(fp);
-            return ERROR;
+            return FRAME_ERROR;
         }
 
         fp->data[fp->length] = '\0';

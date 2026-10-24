@@ -1,4 +1,3 @@
-
 import serial
 import binascii
 
@@ -20,15 +19,23 @@ s = serial.Serial("COM5", 115200, timeout=1)
 s.write(frame(1, "CONNECT"))
 print("CONNECT:", s.readline())
 
-# Test 2: Unsupported command.
-s.write(frame(2, "HELLO"))
+# Test 2: Start a new game.
+s.write(frame(2, "NEW"))
+print("NEW:", s.readline())
+
+# Test 3: Start another new game.
+s.write(frame(3, "NEW"))
+print("NEW again:", s.readline())
+
+# Test 4: Unsupported command.
+s.write(frame(4, "HELLO"))
 print("HELLO:", s.readline())
 
-# Test 3: Invalid checksum and old frame format.
-s.write(b"@0003:CONNECT*0000\n")
+# Test 5: Old frame format.
+s.write(b"@0005:CONNECT*0000\n")
 print("Old format:", s.readline())
 
-# Test 4: Input without a valid frame start marker.
+# Test 6: Garbage without a start marker.
 s.write(b"garbage\n")
 print("Garbage:", s.readline())
 

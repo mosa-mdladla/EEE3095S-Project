@@ -31,6 +31,14 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+/* Server states */
+typedef enum
+{
+    GAME_IDLE,
+    GAME_IN_PROGRESS,
+    GAME_OVER
+} GameState;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -65,7 +73,7 @@ char game_board[9] = {
 
 /* Game state */
 uint8_t current_player = 'X';
-uint8_t game_active = 0U;
+GameState game_state = GAME_IDLE;
 
 /* USER CODE END PV */
 
@@ -230,10 +238,16 @@ static void handle_frame(char *d)
 
         // Reset the game to its initial state.
         current_player = 'X';
-        game_active = 1U;
+        game_state = GAME_IN_PROGRESS;
 
         // Confirm that the new game has started.
         send_frame(seq, "OK", "-");
+    }
+    // Return the authoritative board state.
+    else if (strcmp(command, "STATE") == 0
+            && strcmp(arguments, "-") == 0)
+    {
+        send_frame(seq, "BOARD", game_board);
     }
     else
     {

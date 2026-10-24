@@ -89,6 +89,74 @@ static void MX_USART1_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+
+/* Return 1 if the specified player has won, otherwise return 0. */
+static uint8_t check_winner(char player)
+{
+    /* Check the three rows. */
+    if (game_board[0] == player
+        && game_board[1] == player
+        && game_board[2] == player)
+    {
+        return 1U;
+    }
+
+    if (game_board[3] == player
+        && game_board[4] == player
+        && game_board[5] == player)
+    {
+        return 1U;
+    }
+
+    if (game_board[6] == player
+        && game_board[7] == player
+        && game_board[8] == player)
+    {
+        return 1U;
+    }
+
+    /* Check the three columns. */
+    if (game_board[0] == player
+        && game_board[3] == player
+        && game_board[6] == player)
+    {
+        return 1U;
+    }
+
+    if (game_board[1] == player
+        && game_board[4] == player
+        && game_board[7] == player)
+    {
+        return 1U;
+    }
+
+    if (game_board[2] == player
+        && game_board[5] == player
+        && game_board[8] == player)
+    {
+        return 1U;
+    }
+
+    /* Check the two diagonals. */
+    if (game_board[0] == player
+        && game_board[4] == player
+        && game_board[8] == player)
+    {
+        return 1U;
+    }
+
+    if (game_board[2] == player
+        && game_board[4] == player
+        && game_board[6] == player)
+    {
+        return 1U;
+    }
+
+    /* No winning combination was found. */
+    return 0U;
+}
+
+
 /*
  * Send a pipe-separated protocol frame.
  *
@@ -292,10 +360,47 @@ static void handle_frame(char *d)
             return;
         }
 
-        /* legal move to the authoritative board. */
-        game_board[move_index] = current_player;
+        
+        /* A player made this move. */
+        char moving_player = (char)current_player;
 
-        /* Alternate the turn. */
+        /* A legal move to the authoritative board. */
+        game_board[move_index] = moving_player;
+
+        if (check_winner(moving_player) != 0U)
+        {
+            game_state = GAME_OVER;
+
+            /* Sends the winning player and the final board. */
+            char result[12];
+            snprintf(result, sizeof(result), "%c,%.9s",
+                    moving_player, game_board);
+
+            send_frame(seq, "WIN", result);
+            return;
+        }
+
+        /* Check whether all nine cells are occupied. */
+        uint8_t board_full = 1U;
+
+        for (uint8_t i = 0U; i < 9U; i++)
+        {
+            if (game_board[i] == '.')
+            {
+                board_full = 0U;
+                break;
+            }
+        }
+
+        /* If there is no winner and no empty cell, the game is a draw. */
+        if (board_full != 0U)
+        {
+            game_state = GAME_OVER;
+            send_frame(seq, "DRAW", game_board);
+            return;
+        }
+
+        /* Continue the game by alternating the turn. */
         if (current_player == 'X')
         {
             current_player = 'O';

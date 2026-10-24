@@ -3,7 +3,7 @@
 //initialisation
 void frameparser_init(FrameParser *fp){
     if(fp == NULL){
-        return NULL;
+        return;
     }
     else{
         fp->length = 0U;
@@ -13,7 +13,7 @@ void frameparser_init(FrameParser *fp){
 }
 
 //pushing byte to frame parser
-FrameParser frameparser_push(FrameParser *fp, uint8_t byte){
+FrameStatus frameparser_push(FrameParser *fp, uint8_t byte){
     if(fp == NULL){
         return ERROR;
     }
@@ -25,7 +25,7 @@ FrameParser frameparser_push(FrameParser *fp, uint8_t byte){
             fp->started = true;
             fp->outOfBounds = false; 
             
-            return data[fp->length++] = (char) byte;
+            return fp->data[fp->length++] = (char) byte;
         
         }
         return PARSING;
@@ -37,7 +37,7 @@ FrameParser frameparser_push(FrameParser *fp, uint8_t byte){
     auto end_marker = (uint8_t) PROTOCOL_FRAME_END;
 
     if(byte == end_marker){
-        if (fp -> overflow){
+        if (fp -> outOfBounds){
             frameparser_init(fp);
             return ERROR;
         }
@@ -47,5 +47,12 @@ FrameParser frameparser_push(FrameParser *fp, uint8_t byte){
 
         return FINISHED;
     }
-    
+
+    if(fp->length < (PROTOCOL_MAX_FRAME_LENGTH - 1)){
+        fp->data[fp->length++] = (char) byte;
+    }
+    else{
+        fp->outOfBounds=true;
+    }
+    return PARSING; //keeps reading until \n and then that particular if statement is executed
 }

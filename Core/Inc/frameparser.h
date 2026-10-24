@@ -1,5 +1,5 @@
-#ifndef FRAME_H
-#define FRAME_H
+#ifndef FRAMEPARSER_H
+#define FRAMEPARSER_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -20,5 +20,31 @@ void frameparser_init(FrameParser *fp);
 
 //pushes/feeds a received byte into the parser
 FrameStatus frameparser_push(FrameParser * fp, uint8_t byte);
+
+//16 bits to accomodate for the longest status command and additional characters
+typedef struct{
+    uint16_t sequence;
+    char command[16];
+    char argument[16];
+    uint16_t crc;
+} DecodedFrame;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #endif

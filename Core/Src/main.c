@@ -56,6 +56,17 @@ volatile uint8_t rx_head = 0U;
 volatile uint8_t rx_tail = 0U;
 volatile uint8_t rx_overflow = 0U;
 
+/* Game board: cells 0 to 8, initially empty */
+char game_board[9] = {
+    '.', '.', '.',
+    '.', '.', '.',
+    '.', '.', '.'
+};
+
+/* Game state */
+uint8_t current_player = 'X';
+uint8_t game_active = 0U;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -201,14 +212,32 @@ static void handle_frame(char *d)
     *separator = '\0';
     char *arguments = separator + 1;
 
-    // CONNECT is the only command implemented at this stage.
+    // Handle the CONNECT command.
     if (strcmp(command, "CONNECT") == 0
         && strcmp(arguments, "-") == 0)
     {
         send_frame(seq, "OK", "-");
     }
+    // Handle the NEW command.
+    else if (strcmp(command, "NEW") == 0
+            && strcmp(arguments, "-") == 0)
+    {
+        // Clear all nine board cells.
+        for (uint8_t i = 0U; i < 9U; i++)
+        {
+            game_board[i] = '.';
+        }
+
+        // Reset the game to its initial state.
+        current_player = 'X';
+        game_active = 1U;
+
+        // Confirm that the new game has started.
+        send_frame(seq, "OK", "-");
+    }
     else
     {
+        // Reject unsupported commands or invalid arguments.
         send_frame(seq, "NACK", "BADCMD");
     }
 }

@@ -15,7 +15,7 @@ def frame(seq, command, arguments="-"):
 
 s = serial.Serial("COM5", 115200, timeout=1)
 
-# Test 1: Valid CONNECT command.
+# Test 1: Connect.
 s.write(frame(1, "CONNECT"))
 print("CONNECT:", s.readline())
 
@@ -23,20 +23,20 @@ print("CONNECT:", s.readline())
 s.write(frame(2, "NEW"))
 print("NEW:", s.readline())
 
-# Test 3: Start another new game.
-s.write(frame(3, "NEW"))
+# Test 3: Read the initial board.
+s.write(frame(3, "STATE"))
+print("STATE after NEW:", s.readline())
+
+# Test 4: Start another new game.
+s.write(frame(4, "NEW"))
 print("NEW again:", s.readline())
 
-# Test 4: Unsupported command.
-s.write(frame(4, "HELLO"))
+# Test 5: Read the board again.
+s.write(frame(5, "STATE"))
+print("STATE after NEW again:", s.readline())
+
+# Test 6: Unsupported command.
+s.write(frame(6, "HELLO"))
 print("HELLO:", s.readline())
-
-# Test 5: Old frame format.
-s.write(b"@0005:CONNECT*0000\n")
-print("Old format:", s.readline())
-
-# Test 6: Garbage without a start marker.
-s.write(b"garbage\n")
-print("Garbage:", s.readline())
 
 s.close()

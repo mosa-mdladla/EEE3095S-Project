@@ -64,11 +64,12 @@ volatile uint8_t rx_head = 0U;
 volatile uint8_t rx_tail = 0U;
 volatile uint8_t rx_overflow = 0U;
 
-/* Game board: cells 0 to 8, initially empty */
-char game_board[9] = {
+/* Nine game board cells plus a null terminator. */
+char game_board[10] = {
     '.', '.', '.',
     '.', '.', '.',
-    '.', '.', '.'
+    '.', '.', '.',
+    '\0'
 };
 
 /* Game state */

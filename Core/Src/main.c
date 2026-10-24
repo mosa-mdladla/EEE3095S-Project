@@ -149,11 +149,10 @@ static void handle_frame(char *d)
         return;
     }
 
-    // Extract the four-character sequence number.
+    // Extracts the four-character sequence number.
     memcpy(seq, &d[1], 4U);
     seq[4] = '\0';
 
-    // The sequence number must contain hexadecimal digits.
     for (size_t i = 0U; i < 4U; i++)
     {
         if (!isxdigit((unsigned char)seq[i]))
@@ -163,7 +162,7 @@ static void handle_frame(char *d)
         }
     }
 
-    // Read the four hexadecimal CRC digits.
+    // Reads the four hexadecimal CRC digits.
     uint16_t rx_crc = 0U;
 
     for (size_t i = len - 4U; i < len; i++)
@@ -183,7 +182,7 @@ static void handle_frame(char *d)
         }
         else
         {
-            // Convert either uppercase or lowercase A-F.
+            // Converts either uppercase or lowercase A-F.
             c = (char)tolower((unsigned char)c);
             value = (uint8_t)(c - 'a' + 10);
         }
@@ -191,7 +190,7 @@ static void handle_frame(char *d)
         rx_crc = (uint16_t)((rx_crc << 4U) | value);
     }
 
-    // Calculate the CRC over SSSS|COMMAND|ARGUMENTS.
+    // Calculates the CRC over SSSS|COMMAND|ARGUMENTS.
     // The final separator and four CRC digits are excluded.
     uint16_t calc = protocol_crc16(
         (const uint8_t *)&d[1], len - 6U);
@@ -250,9 +249,66 @@ static void handle_frame(char *d)
     {
         send_frame(seq, "BOARD", game_board);
     }
+    
+    /* Handle a player's move request. */
+    else if (strcmp(command, "MOVE") == 0)
+    {
+        if (game_state != GAME_IN_PROGRESS)
+        {
+            send_frame(seq, "NACK", "NOGAME");
+            return;
+        }
+
+        if (strlen(arguments) != 3U
+            || arguments[1] != ','
+            || (arguments[0] != 'X' && arguments[0] != 'O')
+            || arguments[2] < '0'
+            || arguments[2] > '9')
+        {
+            send_frame(seq, "NACK", "BADARG");
+            return;
+        }
+
+        /* Converts the requested cell character into an index. */
+        uint8_t move_index = (uint8_t)(arguments[2] - '0');
+
+        if (move_index > 8U)
+        {
+            send_frame(seq, "NACK", "RANGE");
+            return;
+        }
+
+        /* Rejects a move from the wrong player. */
+        if (arguments[0] != current_player)
+        {
+            send_frame(seq, "NACK", "NOTURN");
+            return;
+        }
+
+        /* Rejects a move to a cell that is already occupied. */
+        if (game_board[move_index] != '.')
+        {
+            send_frame(seq, "NACK", "OCCUPIED");
+            return;
+        }
+
+        /* legal move to the authoritative board. */
+        game_board[move_index] = current_player;
+
+        /* Alternate the turn. */
+        if (current_player == 'X')
+        {
+            current_player = 'O';
+        }
+        else
+        {
+            current_player = 'X';
+        }
+
+        send_frame(seq, "BOARD", game_board);
+    }
     else
     {
-        // Reject unsupported commands or invalid arguments.
         send_frame(seq, "NACK", "BADCMD");
     }
 }

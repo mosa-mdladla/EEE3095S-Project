@@ -438,6 +438,22 @@ static void handle_frame(char *d)
         send_frame(seq, "OK", "GAMEOVER");
     }
 
+    
+    // Handle a client disconnecting.
+    else if (strcmp(command, "DISCONNECT") == 0
+             && strcmp(arguments, "-") == 0)
+    {
+        if (game_state == GAME_IN_PROGRESS)
+        {
+            // Do not silently abandon an active game.
+            send_frame(seq, "NACK", "GAMEACTIVE");
+            return;
+        }
+
+        // Acknowledge the disconnection.
+        send_frame(seq, "OK", "DISCONNECT");
+    }
+
     else
     {
         send_frame(seq, "NACK", "BADCMD");

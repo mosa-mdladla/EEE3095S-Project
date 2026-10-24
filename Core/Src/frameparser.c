@@ -25,7 +25,7 @@ FrameStatus frameparser_push(FrameParser *fp, uint8_t byte){
             fp->started = true;
             fp->outOfBounds = false; 
             
-            fp->data[fp->length++] = (char) byte;
+            return fp->data[fp->length++] = (char) byte;
         
         }
         return PARSING;

@@ -68,56 +68,148 @@ static void MX_USART1_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static void send_frame(const char *seq, const char *payload)
+
+/*
+ * Send a pipe-separated protocol frame.
+ *
+ * Frame format:
+ * @SSSS|COMMAND|ARGUMENTS|CCCC\n
+ *
+ * The CRC covers SSSS|COMMAND|ARGUMENTS.
+ */
+static void send_frame(const char *seq,
+                       const char *command,
+                       const char *arguments)
 {
     char body[48];
     char out[64];
-    int n = snprintf(body, sizeof(body), "%s:%s", seq, payload);
+
+    // Construct the content protected by the CRC.
+    int n = snprintf(body, sizeof(body), "%s|%s|%s",
+                     seq, command, arguments);
+
+    // Do not transmit a truncated or invalid frame.
+    if (n < 0 || (size_t)n >= sizeof(body))
+    {
+        return;
+    }
+
+    // Calculate the CRC over SSSS|COMMAND|ARGUMENTS.
     uint16_t crc = protocol_crc16((const uint8_t *)body, (size_t)n);
-    int m = snprintf(out, sizeof(out), "@%s*%04X\n", body, (unsigned)crc);
+
+    // Add the start marker, final separator, CRC and newline.
+    int m = snprintf(out, sizeof(out), "@%s|%04X\n",
+                     body, (unsigned)crc);
+
+    if (m < 0 || (size_t)m >= sizeof(out))
+    {
+        return;
+    }
+
+    // Transmit the complete response over USART1.
     HAL_UART_Transmit(&huart1, (uint8_t *)out, (uint16_t)m, 100);
 }
 
+
+/*
+ * Validate and handle a received protocol frame.
+ *
+ * For now, CONNECT is the only supported command. I will change it later:Mutalukanyi.
+ */
 static void handle_frame(char *d)
 {
     size_t len = strlen(d);
     char seq[5] = "0000";
 
-    /* minimum frame: @SSSS:X*CCCC */
-    if (len < 12U || d[5] != ':' || d[len - 5U] != '*') {
-        send_frame(seq, "NACK:BADCMD");
+    // Minimum valid frame: @0000|A|-|0000
+    if (len < 14U || d[0] != '@' || d[5] != '|'
+        || d[len - 5U] != '|')
+    {
+        send_frame(seq, "NACK", "BADFRAME");
         return;
     }
 
-    memcpy(seq, &d[1], 4);
+    // Extract the four-character sequence number.
+    memcpy(seq, &d[1], 4U);
     seq[4] = '\0';
 
-    uint16_t rx_crc = 0U;
-    for (size_t i = len - 4U; i < len; i++) {
-        if (!isxdigit((unsigned char)d[i])) {
-            send_frame(seq, "NACK:BADCRC");
+    // The sequence number must contain hexadecimal digits.
+    for (size_t i = 0U; i < 4U; i++)
+    {
+        if (!isxdigit((unsigned char)seq[i]))
+        {
+            send_frame("0000", "NACK", "BADSEQ");
             return;
         }
-        char c = d[i];
-        uint8_t v = (c <= '9') ? (uint8_t)(c - '0') : (uint8_t)((c | 0x20) - 'a' + 10);
-        rx_crc = (uint16_t)((rx_crc << 4) | v);
     }
 
-    /* CRC covers SSSS:PAYLOAD, i.e. d[1] up to just before '*' */
-    uint16_t calc = protocol_crc16((const uint8_t *)&d[1], len - 6U);
-    if (calc != rx_crc) {
-        send_frame(seq, "NACK:BADCRC");
+    // Read the four hexadecimal CRC digits.
+    uint16_t rx_crc = 0U;
+
+    for (size_t i = len - 4U; i < len; i++)
+    {
+        if (!isxdigit((unsigned char)d[i]))
+        {
+            send_frame(seq, "NACK", "BADCRC");
+            return;
+        }
+
+        char c = d[i];
+        uint8_t value;
+
+        if (c >= '0' && c <= '9')
+        {
+            value = (uint8_t)(c - '0');
+        }
+        else
+        {
+            // Convert either uppercase or lowercase A-F.
+            c = (char)tolower((unsigned char)c);
+            value = (uint8_t)(c - 'a' + 10);
+        }
+
+        rx_crc = (uint16_t)((rx_crc << 4U) | value);
+    }
+
+    // Calculate the CRC over SSSS|COMMAND|ARGUMENTS.
+    // The final separator and four CRC digits are excluded.
+    uint16_t calc = protocol_crc16(
+        (const uint8_t *)&d[1], len - 6U);
+
+    if (calc != rx_crc)
+    {
+        send_frame(seq, "NACK", "BADCRC");
         return;
     }
 
+    // Remove the final separator and CRC from the string.
     d[len - 5U] = '\0';
-    const char *payload = &d[6];
 
-    /* Mutalukanyi remember game state machine goes here */
-    if (strcmp(payload, "CONNECT") == 0) {
-        send_frame(seq, "OK");
-    } else {
-        send_frame(seq, "NACK:BADCMD");
+    // Skip '@SSSS|' to reach the command.
+    char *command = &d[6];
+
+    // Find the separator between the command and arguments.
+    char *separator = strchr(command, '|');
+
+    if (separator == NULL)
+    {
+        send_frame(seq, "NACK", "BADFRAME");
+        return;
+    }
+
+    // Split the frame into separate command and argument strings.
+    *separator = '\0';
+    char *arguments = separator + 1;
+
+    // CONNECT is the only command implemented at this stage.
+    if (strcmp(command, "CONNECT") == 0
+        && strcmp(arguments, "-") == 0)
+    {
+        send_frame(seq, "OK", "-");
+    }
+    else
+    {
+        send_frame(seq, "NACK", "BADCMD");
     }
 }
 
@@ -163,6 +255,26 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+    /* Recover if the UART receive buffer overflowed. */
+    if (rx_overflow != 0U)
+    {
+        /*
+         * Temporarily disable the USART1 interrupt so the ISR
+         * cannot modify the buffer indices while we reset them.
+         */
+        HAL_NVIC_DisableIRQ(USART1_IRQn);
+
+        /* Discard buffered bytes because a frame may be incomplete. */
+        rx_head = 0U;
+        rx_tail = 0U;
+        rx_overflow = 0U;
+
+        /* Allow USART1 receive interrupts again. */
+        HAL_NVIC_EnableIRQ(USART1_IRQn);
+
+        /* Discard any incomplete frame currently being parsed. */
+        frameparser_init(&fp);
+    }
 
     /* USER CODE BEGIN 3 */
 	  while (rx_tail != rx_head) {
@@ -175,7 +287,7 @@ int main(void)
 	          handle_frame(fp.data);
 	          frameparser_init(&fp);
 	      } else if (st == FRAME_ERROR) {
-	          send_frame("0000", "NACK:BADCMD");
+	    	  send_frame("0000", "NACK", "BADFRAME");
 	      }
 	  }
 

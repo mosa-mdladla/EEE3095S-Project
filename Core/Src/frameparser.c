@@ -1,58 +1,70 @@
 #include "frameparser.h"
 
-//initialisation
-void frameparser_init(FrameParser *fp){
-    if(fp == NULL){
+// Reset the parser so that it is ready for a new frame.
+void frameparser_init(FrameParser *fp)
+{
+    if (fp == NULL)
+    {
         return;
     }
-    else{
-        fp->length = 0U;
-        fp->started = false;
-        fp->outOfBounds = false;
-    }
+
+    fp->length = 0U;
+    fp->started = false;
+    fp->outOfBounds = false;
 }
 
-//pushing byte to frame parser
-FrameStatus frameparser_push(FrameParser *fp, uint8_t byte){
-    if(fp == NULL){
+// Feed one received byte into the frame parser.
+FrameStatus frameparser_push(FrameParser *fp, uint8_t byte)
+{
+    if (fp == NULL)
+    {
         return FRAME_ERROR;
     }
-    
-    if(!fp->started){   //reads bytes when the start marker is fed through
-        uint8_t byte_marker = (uint8_t)PROTOCOL_START_MARKER; 
-        if(byte== byte_marker){
+
+    // Ignore bytes until the frame start marker '@' arrives.
+    if (!fp->started)
+    {
+        if (byte == (uint8_t)PROTOCOL_START_MARKER)
+        {
             fp->length = 0U;
             fp->started = true;
-            fp->outOfBounds = false; 
-            
-            fp->data[fp->length++] = (char) byte;
-        
+            fp->outOfBounds = false;
+
+            fp->data[fp->length] = (char)byte;
+            fp->length++;
         }
+
         return PARSING;
     }
 
-
-    //end of frame is indicated by \n
-
-    uint8_t end_marker = (uint8_t) PROTOCOL_FRAME_END;
-
-    if(byte == end_marker){
-        if (fp -> outOfBounds){
+    // A newline terminates the frame.
+    if (byte == (uint8_t)PROTOCOL_FRAME_END)
+    {
+        if (fp->outOfBounds)
+        {
             frameparser_init(fp);
             return FRAME_ERROR;
         }
 
+        // Reserve the final array position for the null terminator.
         fp->data[fp->length] = '\0';
         fp->started = false;
 
         return FINISHED;
     }
 
-    if(fp->length < (PROTOCOL_MAX_FRAME_LENGTH - 1)){
-        fp->data[fp->length++] = (char) byte;
+    // Store the byte if there is room for it and a null terminator.
+    if (fp->length < (PROTOCOL_MAX_FRAME_LENGTH - 1U))
+    {
+        fp->data[fp->length] = (char)byte;
+        fp->length++;
     }
-    else{
-        fp->outOfBounds=true;
+    else
+    {
+        // Keep discarding bytes until newline so the oversized
+        // frame cannot be mistaken for a valid, shorter frame.
+        fp->outOfBounds = true;
     }
-    return PARSING; //keeps reading until \n and then that particular if statement is executed
+
+    return PARSING;
 }

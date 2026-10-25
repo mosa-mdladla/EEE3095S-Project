@@ -126,6 +126,40 @@ try:
         "Board is empty after NEW"
     )
 
+    # Test 6: Rejects moves after a game has ended.
+    print("\n=== Test 6: MOVE after game over ===")
+
+    #Start a new game
+    response = send(seq, "NEW")
+    seq += 1
+    check("|OK|-" in response,"NEW starts a new game")
+
+    moves = ["X,0","O,3","X,1","O,4","X,2"]
+
+    for move in moves:
+        response = send(seq,"MOVE",move)
+        seq+=1
+
+    check("WIN|X," in response, "X wins after completing the top row")
+
+    #a further move must be rejected
+    response = send(seq,"MOVE","O,5")
+    seq+=1
+
+    check("|NACK|NOGAME|" in response, "MOVE after game over is rejected")
+
+    print("\nINVALID COMMAND TESTS COMPLETED")
+
+
+
+
+
+
+
+
+
+
+
     print("\nINVALID-COMMAND TESTS COMPLETED.")
 
 finally:

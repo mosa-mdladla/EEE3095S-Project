@@ -1,5 +1,6 @@
 import serial
 import binascii
+import time
 
 
 def frame(seq, command, arguments="-"):
@@ -39,4 +40,25 @@ print("STATE after NEW again:", s.readline())
 s.write(frame(6, "HELLO"))
 print("HELLO:", s.readline())
 
+# Test 7: Case of Garbage before a valid frame
+s.write(b"garbage123?!")
+s.write(frame(7,"CONNECT"))
+response = s.readline().decode("ascii",errors="replace").strip()
+print("CONNECT aafter garabage", response)
+
+# Test 8: Oversized frame
+s.write(b"@"+b"A"*80 + b"\n")
+response = s.readline().decode("ascii",errors="replace").strip()
+print("Oversize frame response:",response)
+
+# Test 9: Incomplete frame timeout and recovery
+s.write(b"@0008|CONNECT|")
+time.sleep(0.8)
+s.write(frame(9,"CONNECT"))
+response = s.readline().decode("ascii",errors="replace").strip()
+print("CONNECT after timeout:",response)
+
+
 s.close()
+
+print("\nROBUSTNESS TESTS COMPLETED")

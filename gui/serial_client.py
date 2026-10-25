@@ -50,11 +50,12 @@ class SerialClient:
     def send_command(self,command,arguments="-"):
         self.seq = (self.seq +1) & 0xFFFF
         #building frame body without the @ or CRC
-        body = f"{self,self.seq:04X}|{command}|{arguments}"
+        body = f"{self.seq:04X}|{command}|{arguments}"
         #calculate CRC
         crc = crc16(body.encode("ascii"))
 
-        request =  f"{self,self.seq:04X}|{command}|{arguments}"
+        request = f"@{body}|{crc:04X}\n".encode("ascii")
+        
         try:
             self.ser.write(request)
             line = self.ser.readline()
@@ -84,7 +85,7 @@ class SerialClient:
         except ValueError as error:
             raise ProtocolError("Invalid sequence number or CRC") from error
 
-        response_body = (f"{response_seq}|{response_command}|{response_args}")
+        response_body = f"{response_seq}|{response_command}|{response_args}"
         new_crc = crc16(response_body.encode("ascii"))
 
         if received_crc != new_crc:

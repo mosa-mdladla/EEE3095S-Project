@@ -40,6 +40,14 @@ typedef enum
 } GameState;
 
 /* USER CODE END PTD */
+typedef enum
+{
+    RESULT_NONE,
+    RESULT_X_WIN,
+    RESULT_O_WIN,
+    RESULT_DRAW,
+    RESULT_RESIGNED
+} GameResult;
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
@@ -77,6 +85,8 @@ char game_board[10] = {
 uint8_t current_player = 'X';
 GameState game_state = GAME_IDLE;
 
+GameResult game_result = RESULT_NONE;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -90,6 +100,79 @@ static void MX_USART1_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/* Show an 8-bit pattern on PB0-PB7*/
+static void leds_set(uint8_t pattern)
+{
+    GPIOB->BSRR = ((uint32_t)(uint8_t)~pattern << 16U) | pattern;
+}
+
+/* Non-blocking LED animation driven by the server state. Call every loop. */
+static void leds_update(void)
+{
+    static uint8_t  last_key  = 0xFFU;
+    static uint8_t  phase     = 0U;
+    static uint32_t last_tick = 0U;
+
+    /* Which "screen" are we showing? Changes restart the animation. */
+    uint8_t sub = 0U;
+    if (game_state == GAME_IN_PROGRESS) { sub = (current_player == 'X') ? 0U : 1U; }
+    else if (game_state == GAME_OVER)   { sub = (uint8_t)game_result; }
+    uint8_t key = (uint8_t)(((uint8_t)game_state << 4U) | sub);
+
+    /* How long each animation step lasts. */
+    uint32_t step_ms = 150U;
+    if (game_state == GAME_IDLE)                { step_ms = 120U; }
+    else if (game_result == RESULT_DRAW)        { step_ms = 500U; }
+    else if (game_result == RESULT_RESIGNED)    { step_ms = 200U; }
+
+    uint32_t now = HAL_GetTick();
+    if (key != last_key)
+    {
+        last_key  = key;
+        phase     = 0U;
+        last_tick = now;
+    }
+    else if ((now - last_tick) >= step_ms)
+    {
+        last_tick = now;
+        phase = (uint8_t)((phase + 1U) % 28U);  /* 28 = common multiple of 2, 4, 14 */
+    }
+    else
+    {
+        return;                                  /* nothing to change yet */
+    }
+
+    uint8_t pattern = 0U;
+    switch (game_state)
+    {
+    case GAME_IDLE:
+    {
+        uint8_t p = (uint8_t)(phase % 14U);      /* 0..13 */
+        uint8_t idx = (p < 8U) ? p : (uint8_t)(14U - p);
+        pattern = (uint8_t)(1U << idx);
+        break;
+    }
+    case GAME_IN_PROGRESS:
+        pattern = (current_player == 'X') ? 0x0FU : 0xF0U;
+        break;
+    case GAME_OVER:
+        if (game_result == RESULT_DRAW)
+        {
+            pattern = (phase & 1U) ? 0x00U : 0xFFU;
+        }
+        else if (game_result == RESULT_RESIGNED)
+        {
+            static const uint8_t seq[4] = {0x81U, 0x42U, 0x24U, 0x18U};
+            pattern = seq[phase & 3U];
+        }
+        else
+        {
+            pattern = (phase & 1U) ? 0x55U : 0xAAU;
+        }
+        break;
+    }
+    leds_set(pattern);
+}
 
 /* Return 1 if the specified player has won, otherwise return 0. */
 static uint8_t check_winner(char player)
@@ -308,6 +391,7 @@ static void handle_frame(char *d)
         // Reset the game to its initial state.
         current_player = 'X';
         game_state = GAME_IN_PROGRESS;
+        game_result = RESULT_NONE;
 
         // Confirm that the new game has started.
         send_frame(seq, "OK", "-");
@@ -376,6 +460,7 @@ static void handle_frame(char *d)
         if (check_winner(moving_player) != 0U)
         {
             game_state = GAME_OVER;
+            game_result = (moving_player == 'X') ? RESULT_X_WIN : RESULT_O_WIN;
 
             /* Sends the winning player and the final board. */
             char result[12];
@@ -402,6 +487,7 @@ static void handle_frame(char *d)
         if (board_full != 0U)
         {
             game_state = GAME_OVER;
+            game_result = RESULT_DRAW;
             send_frame(seq, "DRAW", game_board);
             return;
         }
@@ -431,6 +517,7 @@ static void handle_frame(char *d)
 
         // End the current game.
         game_state = GAME_OVER;
+        game_result = RESULT_RESIGNED;
 
         // Confirm that the game has ended.
         send_frame(seq, "OK", "GAMEOVER");
@@ -540,6 +627,8 @@ int main(void)
 	  if (fp.started && (HAL_GetTick() - last_byte_tick) > 500U) {
 	      frameparser_init(&fp);
 	  }
+    
+    leds_update();
   }
   /* USER CODE END 3 */
 }
@@ -634,8 +723,16 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
+  GPIO_InitTypeDef led = {0};
+  led.Pin   = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3
+            | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
+  led.Mode  = GPIO_MODE_OUTPUT_PP;
+  led.Pull  = GPIO_NOPULL;
+  led.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &led);
 
   /* USER CODE END MX_GPIO_Init_2 */
 }

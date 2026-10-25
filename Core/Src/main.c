@@ -39,7 +39,6 @@ typedef enum
     GAME_OVER
 } GameState;
 
-/* USER CODE END PTD */
 typedef enum
 {
     RESULT_NONE,
@@ -48,6 +47,8 @@ typedef enum
     RESULT_DRAW,
     RESULT_RESIGNED
 } GameResult;
+
+/* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
@@ -130,13 +131,13 @@ static void lcd_write_nibble(uint8_t n)
     delay_us(2U);
 }
 
-/* Send a full byte as two nibbles: is_data = 1 for characters, 0 for commands. */
+/* Send a full byte: is_data = 1 for characters, 0 for commands. */
 static void lcd_send(uint8_t byte, uint8_t is_data)
 {
     LCD_RS(is_data);
     lcd_write_nibble((uint8_t)(byte >> 4U));
     lcd_write_nibble((uint8_t)(byte & 0x0FU));
-    delay_us(50U);                       /* most commands take ~40 us */
+    delay_us(50U);                       
 }
 
 static void lcd_init(void)
@@ -152,14 +153,13 @@ static void lcd_init(void)
     lcd_write_nibble(0x3U); delay_us(200U);
     lcd_write_nibble(0x2U); delay_us(200U);
 
-    lcd_send(0x28U, 0U);                 /* 4-bit, 2 lines, 5x8 font */
-    lcd_send(0x08U, 0U);                 /* display off */
-    lcd_send(0x01U, 0U); HAL_Delay(3);   /* clear (needs ~1.6 ms) */
-    lcd_send(0x06U, 0U);                 /* cursor moves right */
-    lcd_send(0x0CU, 0U);                 /* display on, no cursor */
+    lcd_send(0x28U, 0U);                 /* 4-bit, 2 lines*/
+    lcd_send(0x08U, 0U);                 
+    lcd_send(0x01U, 0U); HAL_Delay(3);   
+    lcd_send(0x06U, 0U);                 
+    lcd_send(0x0CU, 0U);                 
 }
 
-/* Write one 16-character row, padding with spaces so no clear is needed. */
 static void lcd_print_row(uint8_t row, const char *s)
 {
     lcd_send((uint8_t)(0x80U | (row ? 0x40U : 0x00U)), 0U);
@@ -170,14 +170,77 @@ static void lcd_print_row(uint8_t row, const char *s)
     }
 }
 
-/* Non-blocking LED animation driven by the server state. Call every loop. */
+static void lcd_update(void)
+{
+    static char shown[2][17] = {"", ""};   
+    char row0[17];
+    char row1[17];
+    char b[12];
+
+    /* Compact board: 3 cells per row, rows separated by '|' */
+    snprintf(b, sizeof(b), "%.3s|%.3s|%.3s",
+             &game_board[0], &game_board[3], &game_board[6]);
+
+    uint8_t moves = 0U;
+    for (uint8_t i = 0U; i < 9U; i++)
+    {
+        if (game_board[i] != '.') { moves++; }
+    }
+
+    switch (game_state)
+    {
+    case GAME_IDLE:
+        snprintf(row0, sizeof(row0), "NOUGHTS&CROSSES");
+        snprintf(row1, sizeof(row1), "Waiting for game");
+        break;
+
+    case GAME_IN_PROGRESS:
+        snprintf(row0, sizeof(row0), "%s", b);
+        snprintf(row1, sizeof(row1), "TURN: %c  MOVES:%u",
+                 (char)current_player, (unsigned)(moves % 10U));
+        break;
+
+    case GAME_OVER:
+    default:
+        if (game_result == RESULT_X_WIN)
+        {
+            snprintf(row0, sizeof(row0), "*** X WINS! ***");
+        }
+        else if (game_result == RESULT_O_WIN)
+        {
+            snprintf(row0, sizeof(row0), "*** O WINS! ***");
+        }
+        else if (game_result == RESULT_DRAW)
+        {
+            snprintf(row0, sizeof(row0), "=== DRAW! ===");
+        }
+        else
+        {
+            snprintf(row0, sizeof(row0), "GAME RESIGNED");
+        }
+        snprintf(row1, sizeof(row1), "%s", b);
+        break;
+    }
+
+    if (strcmp(shown[0], row0) != 0)
+    {
+        lcd_print_row(0U, row0);
+        strcpy(shown[0], row0);
+    }
+    if (strcmp(shown[1], row1) != 0)
+    {
+        lcd_print_row(1U, row1);
+        strcpy(shown[1], row1);
+    }
+}
+
+/* Non-blocking LED animation driven by the server state. */
 static void leds_update(void)
 {
     static uint8_t  last_key  = 0xFFU;
     static uint8_t  phase     = 0U;
     static uint32_t last_tick = 0U;
 
-    /* Which "screen" are we showing? Changes restart the animation. */
     uint8_t sub = 0U;
     if (game_state == GAME_IN_PROGRESS) { sub = (current_player == 'X') ? 0U : 1U; }
     else if (game_state == GAME_OVER)   { sub = (uint8_t)game_result; }
@@ -211,7 +274,7 @@ static void leds_update(void)
     {
     case GAME_IDLE:
     {
-        uint8_t p = (uint8_t)(phase % 14U);      /* 0..13 */
+        uint8_t p = (uint8_t)(phase % 14U);      
         uint8_t idx = (p < 8U) ? p : (uint8_t)(14U - p);
         pattern = (uint8_t)(1U << idx);
         break;
@@ -320,20 +383,18 @@ static void send_frame(const char *seq,
     char body[48];
     char out[64];
 
-    // Construct the content protected by the CRC.
     int n = snprintf(body, sizeof(body), "%s|%s|%s",
                      seq, command, arguments);
 
-    // Do not transmit a truncated or invalid frame.
     if (n < 0 || (size_t)n >= sizeof(body))
     {
         return;
     }
 
-    // Calculate the CRC over SSSS|COMMAND|ARGUMENTS.
+    // Calculates the CRC over SSSS|COMMAND|ARGUMENTS.
     uint16_t crc = protocol_crc16((const uint8_t *)body, (size_t)n);
 
-    // Add the start marker, final separator, CRC and newline.
+    // Adds the start marker, final separator, CRC and newline.
     int m = snprintf(out, sizeof(out), "@%s|%04X\n",
                      body, (unsigned)crc);
 
@@ -342,15 +403,13 @@ static void send_frame(const char *seq,
         return;
     }
 
-    // Transmit the complete response over USART1.
+    // Transmits the complete response over USART1.
     HAL_UART_Transmit(&huart1, (uint8_t *)out, (uint16_t)m, 100);
 }
 
 
 /*
  * Validate and handle a received protocol frame.
- *
- * For now, CONNECT is the only supported command. I will change it later:Mutalukanyi.
  */
 static void handle_frame(char *d)
 {
@@ -417,13 +476,11 @@ static void handle_frame(char *d)
         return;
     }
 
-    // Remove the final separator and CRC from the string.
+    // Removes the final separator and CRC from the string.
     d[len - 5U] = '\0';
 
-    // Skip '@SSSS|' to reach the command.
     char *command = &d[6];
 
-    // Find the separator between the command and arguments.
     char *separator = strchr(command, '|');
 
     if (separator == NULL)
@@ -432,7 +489,7 @@ static void handle_frame(char *d)
         return;
     }
 
-    // Split the frame into separate command and argument strings.
+    // Splits the frame into separate command and argument strings.
     *separator = '\0';
     char *arguments = separator + 1;
 
@@ -641,11 +698,10 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
+
   /* USER CODE BEGIN 2 */
   frameparser_init(&fp);
   lcd_init();
-  lcd_print_row(0, "NOUGHTS");
-  lcd_print_row(1, "AND CROSSES");
   __HAL_UART_ENABLE_IT(&huart1, UART_IT_RXNE);
   /* USER CODE END 2 */
 
@@ -696,6 +752,7 @@ int main(void)
 	  }
 
     leds_update();
+    lcd_update();
   }
   /* USER CODE END 3 */
 }
@@ -790,9 +847,11 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  
   GPIO_InitTypeDef led = {0};
   led.Pin   = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3
             | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
@@ -800,8 +859,6 @@ static void MX_GPIO_Init(void)
   led.Pull  = GPIO_NOPULL;
   led.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &led);
-
-  __HAL_RCC_GPIOC_CLK_ENABLE();
 
   GPIO_InitTypeDef lcd = {0};
   lcd.Mode  = GPIO_MODE_OUTPUT_PP;

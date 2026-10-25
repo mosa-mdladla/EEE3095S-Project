@@ -51,6 +51,12 @@ typedef enum
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define PIN_WRITE(port, pin, on) \
+    ((port)->BSRR = (on) ? (uint32_t)(pin) : ((uint32_t)(pin) << 16U))
+
+#define LCD_RS(on) PIN_WRITE(GPIOC, GPIO_PIN_14, (on))
+#define LCD_E(on)  PIN_WRITE(GPIOC, GPIO_PIN_15, (on))
+#define LCD_BL(on) PIN_WRITE(GPIOC, GPIO_PIN_13, (on))
 
 /* USER CODE END PD */
 
@@ -104,6 +110,64 @@ static void MX_USART1_UART_Init(void);
 static void leds_set(uint8_t pattern)
 {
     GPIOB->BSRR = ((uint32_t)(uint8_t)~pattern << 16U) | pattern;
+}
+
+static void delay_us(uint32_t us)
+{
+    for (volatile uint32_t i = 0U; i < us; i++) { }
+}
+
+static void lcd_write_nibble(uint8_t n)
+{
+    PIN_WRITE(GPIOB, GPIO_PIN_8,  n & 0x1U);
+    PIN_WRITE(GPIOB, GPIO_PIN_9,  n & 0x2U);
+    PIN_WRITE(GPIOA, GPIO_PIN_12, n & 0x4U);
+    PIN_WRITE(GPIOA, GPIO_PIN_15, n & 0x8U);
+
+    LCD_E(1);
+    delay_us(2U);
+    LCD_E(0);
+    delay_us(2U);
+}
+
+/* Send a full byte as two nibbles: is_data = 1 for characters, 0 for commands. */
+static void lcd_send(uint8_t byte, uint8_t is_data)
+{
+    LCD_RS(is_data);
+    lcd_write_nibble((uint8_t)(byte >> 4U));
+    lcd_write_nibble((uint8_t)(byte & 0x0FU));
+    delay_us(50U);                       /* most commands take ~40 us */
+}
+
+static void lcd_init(void)
+{
+    LCD_BL(1);                           /* backlight on */
+    LCD_RS(0);
+    LCD_E(0);
+    HAL_Delay(50);                       /* LCD power-up time */
+
+    /* Reset sequence that forces 4-bit mode. */
+    lcd_write_nibble(0x3U); HAL_Delay(5);
+    lcd_write_nibble(0x3U); delay_us(200U);
+    lcd_write_nibble(0x3U); delay_us(200U);
+    lcd_write_nibble(0x2U); delay_us(200U);
+
+    lcd_send(0x28U, 0U);                 /* 4-bit, 2 lines, 5x8 font */
+    lcd_send(0x08U, 0U);                 /* display off */
+    lcd_send(0x01U, 0U); HAL_Delay(3);   /* clear (needs ~1.6 ms) */
+    lcd_send(0x06U, 0U);                 /* cursor moves right */
+    lcd_send(0x0CU, 0U);                 /* display on, no cursor */
+}
+
+/* Write one 16-character row, padding with spaces so no clear is needed. */
+static void lcd_print_row(uint8_t row, const char *s)
+{
+    lcd_send((uint8_t)(0x80U | (row ? 0x40U : 0x00U)), 0U);
+    for (uint8_t i = 0U; i < 16U; i++)
+    {
+        char c = (*s != '\0') ? *s++ : ' ';
+        lcd_send((uint8_t)c, 1U);
+    }
 }
 
 /* Non-blocking LED animation driven by the server state. Call every loop. */
@@ -579,6 +643,9 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   frameparser_init(&fp);
+  lcd_init();
+  lcd_print_row(0, "NOUGHTS");
+  lcd_print_row(1, "AND CROSSES");
   __HAL_UART_ENABLE_IT(&huart1, UART_IT_RXNE);
   /* USER CODE END 2 */
 
@@ -627,7 +694,7 @@ int main(void)
 	  if (fp.started && (HAL_GetTick() - last_byte_tick) > 500U) {
 	      frameparser_init(&fp);
 	  }
-    
+
     leds_update();
   }
   /* USER CODE END 3 */
@@ -733,6 +800,20 @@ static void MX_GPIO_Init(void)
   led.Pull  = GPIO_NOPULL;
   led.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &led);
+
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+
+  GPIO_InitTypeDef lcd = {0};
+  lcd.Mode  = GPIO_MODE_OUTPUT_PP;
+  lcd.Pull  = GPIO_NOPULL;
+  lcd.Speed = GPIO_SPEED_FREQ_LOW;
+
+  lcd.Pin = GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;   /* BL, RS, E */
+  HAL_GPIO_Init(GPIOC, &lcd);
+  lcd.Pin = GPIO_PIN_8 | GPIO_PIN_9;                   /* D4, D5 */
+  HAL_GPIO_Init(GPIOB, &lcd);
+  lcd.Pin = GPIO_PIN_12 | GPIO_PIN_15;                 /* D6, D7 */
+  HAL_GPIO_Init(GPIOA, &lcd);
 
   /* USER CODE END MX_GPIO_Init_2 */
 }

@@ -56,13 +56,14 @@ UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 FrameParser fp;
-uint32_t last_byte_tick = 0U;
+volatile uint32_t last_byte_tick = 0U;
 
 #define RX_BUF_SIZE 128U
 uint8_t rx_buf[RX_BUF_SIZE];
 volatile uint8_t rx_head = 0U;
 volatile uint8_t rx_tail = 0U;
 volatile uint8_t rx_overflow = 0U;
+volatile uint8_t rx_error = 0U;
 
 /* Nine game board cells plus a null terminator. */
 char game_board[10] = {
@@ -311,18 +312,15 @@ static void handle_frame(char *d)
         // Confirm that the new game has started.
         send_frame(seq, "OK", "-");
     }
+    
     // Return the authoritative board state.
     else if (strcmp(command, "STATE") == 0
             && strcmp(arguments, "-") == 0)
     {
-        // STATE is not allowed before a game has started.
-        if (game_state == GAME_IDLE)
-        {
-            send_frame(seq, "NACK", "NOGAME");
-            return;
-        }
-
-        // STATE is allowed during a game and after it ends.
+        /*
+         * STATE reports the current board in every game state.
+         * In IDLE, the board should contain nine empty cells.
+         */
         send_frame(seq, "BOARD", game_board);
     }
     
@@ -503,7 +501,7 @@ int main(void)
   {
     /* USER CODE END WHILE */
     /* Recover if the UART receive buffer overflowed. */
-    if (rx_overflow != 0U)
+    if (rx_overflow != 0U || rx_error != 0U)
     {
         /*
          * Temporarily disable the USART1 interrupt so the ISR
@@ -515,6 +513,7 @@ int main(void)
         rx_head = 0U;
         rx_tail = 0U;
         rx_overflow = 0U;
+        rx_error = 0U;
 
         /* Allow USART1 receive interrupts again. */
         HAL_NVIC_EnableIRQ(USART1_IRQn);
@@ -527,7 +526,6 @@ int main(void)
 	  while (rx_tail != rx_head) {
 	      uint8_t b = rx_buf[rx_tail];
 	      rx_tail = (uint8_t)((rx_tail + 1U) % RX_BUF_SIZE);
-	      last_byte_tick = HAL_GetTick();
 
 	      FrameStatus st = frameparser_push(&fp, b);
 	      if (st == FINISHED) {
@@ -649,6 +647,7 @@ void uart_rx_isr(void)
 
     if (isr & USART_ISR_RXNE) {
         uint8_t b = (uint8_t)USART1->RDR;
+        last_byte_tick = HAL_GetTick();
         uint8_t next = (uint8_t)((rx_head + 1U) % RX_BUF_SIZE);
         if (next != rx_tail) {
             rx_buf[rx_head] = b;
@@ -658,7 +657,12 @@ void uart_rx_isr(void)
         }
     }
 
-    if (isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE)) {
+    if (isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE))
+    {
+        /* Tell the main loop to discard potentially corrupted input. */
+        rx_error = 1U;
+
+        /* Clear the UART hardware error flags. */
         USART1->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NCF;
     }
 }

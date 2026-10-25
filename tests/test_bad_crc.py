@@ -2,7 +2,7 @@ import serial
 import binascii
 
 def frame(seq, command, arguments="-"):
-    body = f"{seq:04d}|{command}|{arguments}".encode("ascii")
+    body = f"{seq:04X}|{command}|{arguments}".encode("ascii")
     crc = f"{binascii.crc_hqx(body, 0xFFFF):04X}".encode("ascii")
     return b"@" + body + b"|" + crc + b"\n"
 

@@ -4,7 +4,7 @@ import binascii
 
 def frame(seq, command, arguments="-"):
     # Build the text covered by the CRC.
-    body = f"{seq:04d}|{command}|{arguments}".encode("ascii")
+    body = f"{seq:04X}|{command}|{arguments}".encode("ascii")
 
     # Calculate CRC-16/CCITT-FALSE.
     crc = f"{binascii.crc_hqx(body, 0xFFFF):04X}".encode("ascii")

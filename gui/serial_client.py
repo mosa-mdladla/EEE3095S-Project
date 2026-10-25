@@ -60,3 +60,37 @@ class SerialClient:
             line = self.ser.readline()
         except serial.SerialException as error:
             raise SerialClientError(f"Serial Communication failed:  {error}") from error
+
+        if not line:
+            raise ResponseTimeout(f"No response recieved for {command}")
+
+        try:
+            line = line.decode("ascii").strip()
+        except UnicodeDecodeError as error:
+            raise ProtocolError("Invalid characters used") from error
+
+        if not line.startswith("@"):
+            raise ProtocolError("Response does not start with @")
+
+        parts = line[1:].split("|")
+        if len(parts) != 4:
+            raise ProtocolError("Invalid frame format.")
+        #Stores each field separately for validation
+        response_seq, response_command, response_args, response_crc = parts
+
+        try:
+            received_seq = int(response_seq, 16)
+            received_crc = int(response_crc, 16)
+        except ValueError as error:
+            raise ProtocolError("Invalid sequence number or CRC") from error
+
+        response_body = (f"{response_seq}|{response_command}|{response_args}")
+        new_crc = crc16(response_body.encode("ascii"))
+
+        if received_crc != new_crc:
+            raise ProtocolError("Response CRC Mismatch")
+        if received_seq != self.seq:
+            raise SequenceMismatch(f"Expected sequence {self.seq:04X}," f"received {received_seq:04X}")
+
+        #returns response command and its arguments
+        return response_command, response_args

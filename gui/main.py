@@ -249,8 +249,7 @@ class GameWindow(QWidget):
             button.setEnabled(can_play)
 
     def update_controls(self):
-        self.connect_button.setEnabled(not self.connectedand (self.worker is Noneor not self.worker.isRunning()))
-
+        self.connect_button.setEnabled(not self.connected and(self.worker is None or not self.worker.isRunning()))
         self.new_game_button.setEnabled(self.connected and not self.pending)
 
         self.state_button.setEnabled( self.connected and not self.pending )

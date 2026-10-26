@@ -301,6 +301,94 @@ static void leds_update(void)
     leds_set(pattern);
 }
 
+static void start_new_game(void){
+    for(uint8_t i=0U; i<9U;i++){
+        game_board[i] = '.';
+    }
+
+    game_board[9] = '\0';
+    current_player = 'X';
+    game_state = GAME_IN_PROGRESS;
+    game_result = RESULT_NONE;
+
+}
+
+/*Button handler with debouncing*/
+static void button_update(void){
+    static GPIO_PinState last_read = GPIO_PIN_SET;
+    static GPIO_PinState stable_state = GPIO_PIN_SET;
+    static uint32_t last_change_tick = 0U;
+
+    GPIO_PinState reading = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);
+    uint32_t now = HAL_GetTick();
+    //looking out for any changes in button input
+    if(reading != last_read){
+        last_read = reading;
+        last_change_tick = now;
+    }
+
+    if((now - last_change_tick)>=30U && reading != stable_state){
+        stable_state = reading;
+        if((stable_state == GPIO_PIN_RESET) && (game_state == GAME_IDLE || game_state == GAME_OVER))
+        {
+            start_new_game();
+        }
+    }
+
+    
+}
+
+static void turn_leds_update(void){
+    static GameState previous_state = (GameState)255;
+    static uint32_t last_tick = 0U;
+    static uint8_t blink_on = 0U;
+
+    uint32_t now = HAL_GetTick();
+
+    if(game_state != previous_state){
+        previous_state = game_state;
+        last_tick = now;
+        blink_on = 0U;
+    }
+
+    if (game_state == GAME_IN_PROGRESS){
+        // X's turn: green on, red off.
+        if (current_player == 'X')
+        {
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_11, GPIO_PIN_SET);
+        }
+        // O's turn: red on, green off.
+        else
+        {
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_11, GPIO_PIN_RESET);
+        }
+    }
+    else if (game_state == GAME_OVER)
+    {
+        // Blink both LEDs together after the game ends. 
+        if ((now - last_tick) >= 300U)
+        {
+            last_tick = now;
+            blink_on = (uint8_t)!blink_on;
+        }
+
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10,
+                          blink_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_11,
+                          blink_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    }
+    else
+    {
+        // Idle: both turn indicators off.
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_11, GPIO_PIN_RESET);
+    }
+
+}
+
+
 /* Return 1 if the specified player has won, otherwise return 0. */
 static uint8_t check_winner(char player)
 {
@@ -503,19 +591,8 @@ static void handle_frame(char *d)
     else if (strcmp(command, "NEW") == 0
             && strcmp(arguments, "-") == 0)
     {
-        // Clear all nine board cells.
-        for (uint8_t i = 0U; i < 9U; i++)
-        {
-            game_board[i] = '.';
-        }
-
-        // Reset the game to its initial state.
-        current_player = 'X';
-        game_state = GAME_IN_PROGRESS;
-        game_result = RESULT_NONE;
-
-        // Confirm that the new game has started.
-        send_frame(seq, "OK", "-");
+        start_new_game();
+        send_frame(seq, "OK","-");
     }
     
     // Return the authoritative board state.
@@ -750,7 +827,9 @@ int main(void)
 	  if (fp.started && (HAL_GetTick() - last_byte_tick) > 500U) {
 	      frameparser_init(&fp);
 	  }
-
+    
+    button_update();
+    turn_leds_update();
     leds_update();
     lcd_update();
   }
@@ -859,6 +938,24 @@ static void MX_GPIO_Init(void)
   led.Pull  = GPIO_NOPULL;
   led.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &led);
+
+  /* Red and green turn-indicator LEDs: PB10 and PB11. */
+GPIO_InitTypeDef turn_led = {0};
+turn_led.Pin = GPIO_PIN_10 | GPIO_PIN_11;
+turn_led.Mode = GPIO_MODE_OUTPUT_PP;
+turn_led.Pull = GPIO_NOPULL;
+turn_led.Speed = GPIO_SPEED_FREQ_LOW;
+HAL_GPIO_Init(GPIOB, &turn_led);
+
+/* Start with both turn-indicator LEDs off. */
+HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10 | GPIO_PIN_11,GPIO_PIN_RESET);
+
+/* SW0: active-low button with an internal pull-up. */
+GPIO_InitTypeDef button = {0};
+button.Pin = GPIO_PIN_0;
+button.Mode = GPIO_MODE_INPUT;
+button.Pull = GPIO_PULLUP;
+HAL_GPIO_Init(GPIOA, &button);
 
   GPIO_InitTypeDef lcd = {0};
   lcd.Mode  = GPIO_MODE_OUTPUT_PP;

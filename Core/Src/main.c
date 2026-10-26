@@ -190,7 +190,7 @@ static void lcd_update(void)
     switch (game_state)
     {
     case GAME_IDLE:
-        snprintf(row0, sizeof(row0), "NOUGHTS&CROSSES");
+        snprintf(row0, sizeof(row0), "TICTACTOE");
         snprintf(row1, sizeof(row1), "Waiting for game");
         break;
 

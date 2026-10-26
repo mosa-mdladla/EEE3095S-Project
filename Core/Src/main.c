@@ -313,6 +313,18 @@ static void start_new_game(void){
 
 }
 
+/* Back to the power-up state: empty board, LCD shows "Waiting for game". */
+static void reset_to_idle(void){
+    for(uint8_t i=0U; i<9U; i++){
+        game_board[i] = '.';
+    }
+
+    game_board[9] = '\0';
+    current_player = 'X';
+    game_state = GAME_IDLE;
+    game_result = RESULT_NONE;
+}
+
 /*Button handler with debouncing*/
 static void button_update(void){
     static GPIO_PinState last_read = GPIO_PIN_SET;
@@ -732,6 +744,9 @@ static void handle_frame(char *d)
             send_frame(seq, "NACK", "GAMEACTIVE");
             return;
         }
+
+        // The client has left: go back to idle ("Waiting for game").
+        reset_to_idle();
 
         // Acknowledge the disconnection.
         send_frame(seq, "OK", "DISCONNECT");

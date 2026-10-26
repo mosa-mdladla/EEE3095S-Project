@@ -57,6 +57,8 @@ class SerialClient:
         request = f"@{body}|{crc:04X}\n".encode("ascii")
         
         try:
+            #throw away any late reply left over from an earlier request
+            self.ser.reset_input_buffer()
             self.ser.write(request)
             line = self.ser.readline()
         except serial.SerialException as error:

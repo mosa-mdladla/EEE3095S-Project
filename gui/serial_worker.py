@@ -1,11 +1,34 @@
 from PySide6.QtCore import QThread, Signal
-from gui.serial_client import SerialClient
+from gui.serial_client import (SerialClient, ResponseTimeout, ProtocolError,
+                               SequenceMismatch)
 from queue import Queue
+
+
+def open_failure_kind(error):
+    """Why the serial port could not be opened."""
+    text = str(error).lower()
+    if "permissionerror" in text or "access is denied" in text or "busy" in text:
+        return "port_busy"          # another program is using the port
+    return "not_connected"          # the board isn't plugged in
+
+
+def error_kind(error):
+    """What kind of problem a failed command was."""
+    if isinstance(error, ResponseTimeout):
+        return "timeout"            # the board didn't answer
+    if isinstance(error, SequenceMismatch):
+        return "sequence"           # a reply that belongs to another request
+    if isinstance(error, ProtocolError):
+        return "protocol"           # garbled reply / bad CRC
+    return "lost"                   # the serial link itself failed (unplugged)
+
 
 class SerialWorker(QThread):
     #sending response back to main GUI
     response_received = Signal(str,str)
-    error_occurred = Signal(str)
+    #(kind, message): kind is one of not_connected, port_busy, timeout,
+    #sequence, protocol, lost
+    error_occurred = Signal(str,str)
     #boolean of whether a new connection has opened successfully
     new_connection = Signal(bool)
 
@@ -26,7 +49,12 @@ class SerialWorker(QThread):
     def run(self):
         #Opens a connection and keeps it open for the entire session
         try:
-            self.client = SerialClient(port=self.port)
+            try:
+                self.client = SerialClient(port=self.port)
+            except Exception as error:
+                self.error_occurred.emit(open_failure_kind(error), str(error))
+                return
+
             self.new_connection.emit(True)
 
             while True:
@@ -40,10 +68,8 @@ class SerialWorker(QThread):
                     response_command, response_arguments = (self.client.send_command(command,arguments))
                     #Passes response over to GUI
                     self.response_received.emit(response_command,response_arguments)
-                except:
-                    self.error_occurred.emit(str(error))
-        except Exception as error:
-            self.error_occurred.emit(str(error))
+                except Exception as error:
+                    self.error_occurred.emit(error_kind(error), str(error))
         finally:
             #serial connection closes when the worker/thread stops
             if self.client is not None:

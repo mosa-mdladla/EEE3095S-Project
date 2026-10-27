@@ -26,6 +26,11 @@ def send(ser, cmd, args="-"):
 def look(msg):
     input(f"   LOOK: {msg}  -> press Enter to continue ")
 
+def fresh_game(ser):
+    """CONNECT returns the server to IDLE; NEW is only accepted from IDLE or GAME_OVER."""
+    assert send(ser, "CONNECT") == ("OK", "-")
+    assert send(ser, "NEW") == ("OK", "-")
+
 def play(ser, moves):
     """moves: list of (player, cell). Returns the last reply."""
     for p, c in moves:
@@ -52,24 +57,24 @@ if __name__ == "__main__":
         look("still O's turn (PB4-PB7), unchanged by the rejections")
 
         # win (X: 0,1,2)
-        send(ser, "NEW")
+        fresh_game(ser)
         r = play(ser, [("X",0),("O",3),("X",1),("O",4),("X",2)])
         assert r[0] == "WIN" and r[1].startswith("X,")
         look("WIN: alternating 10101010 / 01010101")
 
         # draw
-        send(ser, "NEW")
+        fresh_game(ser)
         r = play(ser, [("X",0),("O",1),("X",2),("O",4),("X",3),
                        ("O",5),("X",7),("O",6),("X",8)])
         assert r[0] == "DRAW"
         look("DRAW: all LEDs blinking slowly")
 
         # resign
-        send(ser, "NEW")
+        fresh_game(ser)
         assert send(ser, "RESIGN") == ("OK", "GAMEOVER")
         look("RESIGNED: edge LEDs closing inward")
 
         # new game after game over restarts the pattern
-        send(ser, "NEW")
+        assert send(ser, "NEW") == ("OK", "-")
         look("back to X's turn: PB0-PB3 steady")
         print("All protocol assertions passed.")

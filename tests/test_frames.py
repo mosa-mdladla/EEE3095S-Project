@@ -15,50 +15,91 @@ def frame(seq, command, arguments="-"):
 
 
 s = serial.Serial("COM5", 115200, timeout=1)
-
-# Test 1: Connect.
-s.write(frame(1, "CONNECT"))
-print("CONNECT:", s.readline())
-
-# Test 2: Start a new game.
-s.write(frame(2, "NEW"))
-print("NEW:", s.readline())
-
-# Test 3: Read the initial board.
-s.write(frame(3, "STATE"))
-print("STATE after NEW:", s.readline())
-
-# Test 4: Start another new game.
-s.write(frame(4, "NEW"))
-print("NEW again:", s.readline())
-
-# Test 5: Read the board again.
-s.write(frame(5, "STATE"))
-print("STATE after NEW again:", s.readline())
-
-# Test 6: Unsupported command.
-s.write(frame(6, "HELLO"))
-print("HELLO:", s.readline())
-
-# Test 7: Case of Garbage before a valid frame
-s.write(b"garbage123?!")
-s.write(frame(7,"CONNECT"))
-response = s.readline().decode("ascii",errors="replace").strip()
-print("CONNECT aafter garabage", response)
-
-# Test 8: Oversized frame
-s.write(b"@"+b"A"*80 + b"\n")
-response = s.readline().decode("ascii",errors="replace").strip()
-print("Oversize frame response:",response)
-
-# Test 9: Incomplete frame timeout and recovery
-s.write(b"@0008|CONNECT|")
-time.sleep(0.8)
-s.write(frame(9,"CONNECT"))
-response = s.readline().decode("ascii",errors="replace").strip()
-print("CONNECT after timeout:",response)
+s.reset_input_buffer()
 
 
-s.close()
+def read():
+    return s.readline().decode("ascii", errors="replace").strip()
 
-print("\nROBUSTNESS TESTS COMPLETED")
+
+def check(condition, message):
+    if not condition:
+        raise AssertionError(message)
+    print(f"PASS: {message}")
+
+
+try:
+    # Known starting state: CONNECT returns the server to IDLE.
+    s.write(frame(0x0FFF, "CONNECT"))
+    check("|OK|-|" in read(), "Server reset to IDLE with CONNECT")
+
+    print("\nTest 1: CONNECT")
+    s.write(frame(1, "CONNECT"))
+    response = read()
+    print("Received:", response)
+    check("@0001|OK|-|" in response, "CONNECT returns OK")
+
+    print("\nTest 2: NEW starts a game")
+    s.write(frame(2, "NEW"))
+    response = read()
+    print("Received:", response)
+    check("@0002|OK|-|" in response, "NEW returns OK")
+
+    print("\nTest 3: STATE after NEW")
+    s.write(frame(3, "STATE"))
+    response = read()
+    print("Received:", response)
+    check("|BOARD|.........|" in response, "Board is empty after NEW")
+
+    print("\nTest 4: NEW while a game is in progress")
+    s.write(frame(4, "NEW"))
+    response = read()
+    print("Received:", response)
+    check("|NACK|GAMEACTIVE|" in response, "NEW is refused during an active game")
+
+    print("\nTest 5: STATE after the refused NEW")
+    s.write(frame(5, "STATE"))
+    response = read()
+    print("Received:", response)
+    check("|BOARD|.........|" in response, "Board unchanged after the refused NEW")
+
+    print("\nTest 6: Unsupported command")
+    s.write(frame(6, "HELLO"))
+    response = read()
+    print("Received:", response)
+    check("|NACK|BADCMD|" in response, "Unknown command returns NACK:BADCMD")
+
+    print("\nTest 7: Garbage bytes before a valid frame")
+    s.write(b"garbage123?!")
+    s.write(frame(7, "CONNECT"))
+    response = read()
+    print("Received:", response)
+    check("@0007|OK|-|" in response, "Garbage before '@' is ignored")
+
+    print("\nTest 8: Oversized frame")
+    s.write(b"@" + b"A" * 80 + b"\n")
+    response = read()
+    print("Received:", response)
+    check("|NACK|BADFRAME|" in response, "Oversized frame returns NACK:BADFRAME")
+
+    print("\nTest 9: Incomplete frame, then recovery")
+    s.write(b"@0008|CONNECT|")
+    time.sleep(0.8)  # longer than the 500 ms frame timeout
+    s.write(frame(9, "CONNECT"))
+    response = read()
+    print("Received:", response)
+    check("@0009|OK|-|" in response,
+          "Incomplete frame was dropped and the next frame was accepted")
+
+    print("\nTest 10: Frame sent one byte at a time, 2 ms apart")
+    for byte_value in frame(10, "CONNECT"):
+        s.write(bytes([byte_value]))
+        time.sleep(0.002)
+    response = read()
+    print("Received:", response)
+    check("@000A|OK|-|" in response, "Slowly sent frame is received intact")
+
+    print("\nROBUSTNESS TESTS PASSED")
+
+finally:
+    s.close()

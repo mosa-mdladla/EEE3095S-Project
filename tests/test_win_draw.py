@@ -9,6 +9,11 @@ def frame(seq, command, arguments="-"):
 s = serial.Serial("COM5", 115200, timeout=2)
 s.reset_input_buffer()
 
+# Known starting state: CONNECT always returns the server to IDLE, so this
+# test no longer depends on what an earlier test left behind.
+s.write(frame(0x0FFF, "CONNECT"))
+assert b"|OK|-|" in s.readline(), "Could not reset the server with CONNECT"
+
 def send(seq, command, arguments="-"):
     request = frame(seq, command, arguments)
     s.write(request)
@@ -24,7 +29,8 @@ try:
     # TEST 1: X wins across the top row.
     print("TEST 1: Detect a horizontal win for X")
 
-    send(1, "NEW")
+    response = send(1, "NEW")
+    assert "|OK|-" in response, "NEW failed"
     send(2, "MOVE", "X,0")
     send(3, "MOVE", "O,3")
     send(4, "MOVE", "X,1")
@@ -51,7 +57,8 @@ try:
     # TEST 3: Fill the board without a winning line.
     print("\nTEST 3: Detect a draw")
 
-    send(8, "NEW")
+    response = send(8, "NEW")
+    assert "|OK|-" in response, "NEW after game over failed"
 
     moves = [
         ("X", 0), ("O", 4),

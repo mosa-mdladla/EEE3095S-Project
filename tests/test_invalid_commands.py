@@ -9,15 +9,18 @@ def frame(seq, command, arguments="-"):
 s = serial.Serial("COM5", 115200, timeout=2)
 s.reset_input_buffer()
 
-def send(seq, command, arguments="-"):
+seq = 0
+
+def send(command, arguments="-"):
+    """Send one frame with the next sequence number and return the reply."""
+    global seq
+    seq += 1
     request = frame(seq, command, arguments)
     s.write(request)
     response = s.readline().decode("ascii").strip()
 
     if not response:
-        raise AssertionError(
-            f"No response for {command} {arguments}"
-        )
+        raise AssertionError(f"No response for {command} {arguments}")
 
     print(f"Sent:     {request.decode('ascii').strip()}")
     print(f"Received: {response}")
@@ -31,136 +34,70 @@ def check(condition, message):
     print(f"PASS: {message}")
 
 try:
-    seq = 1
-
-    # CONNECT to establish the protocol session.
-    response = send(seq, "CONNECT")
+    # CONNECT returns the server to IDLE, so the test starts from a known state.
+    response = send("CONNECT")
     check("|OK|-" in response, "CONNECT succeeds")
-    seq += 1
 
     # Test 1: MOVE before NEW.
     print("\n=== Test 1: MOVE before NEW ===")
-
-    response = send(seq, "MOVE", "X,0")
-    seq += 1
-
-    check(
-        "|NACK|NOGAME|" in response,
-        "MOVE before NEW is rejected"
-    )
+    response = send("MOVE", "X,0")
+    check("|NACK|NOGAME|" in response, "MOVE before NEW is rejected")
 
     # Test 2: STATE before NEW.
     print("\n=== Test 2: STATE before NEW ===")
-
-    response = send(seq, "STATE")
-    seq += 1
-
-    print("Review the response: does STATE return a board?")
-    print("We will use this result to confirm the intended behaviour.")
+    response = send("STATE")
+    check("|NACK|NOGAME|" in response, "STATE before NEW is rejected")
 
     # Test 3: Invalid arguments in an active game.
     print("\n=== Test 3: Invalid MOVE arguments ===")
-
-    response = send(seq, "NEW")
-    seq += 1
+    response = send("NEW")
     check("|OK|-" in response, "NEW starts a game")
 
-    response = send(seq, "MOVE", "X,A")
-    seq += 1
-    print("Invalid cell character response:", response)
+    response = send("MOVE", "X,A")
+    check("|NACK|BADARG|" in response, "Non-numeric cell returns NACK:BADARG")
+    response = send("STATE")
+    check("|BOARD|.........|" in response, "Invalid character did not change the board")
 
-    response = send(seq, "STATE")
-    seq += 1
-    check(
-        "|BOARD|.........|" in response,
-        "Invalid character did not change the board"
-    )
-
-    response = send(seq, "MOVE", "X,10")
-    seq += 1
-    print("Two-digit cell index response:", response)
-
-    response = send(seq, "STATE")
-    seq += 1
-    check(
-        "|BOARD|.........|" in response,
-        "Invalid index did not change the board"
-    )
+    response = send("MOVE", "X,10")
+    check("|NACK|RANGE|" in response, "Two-digit cell index returns NACK:RANGE")
+    response = send("STATE")
+    check("|BOARD|.........|" in response, "Invalid index did not change the board")
 
     # Test 4: Unknown command.
     print("\n=== Test 4: Unknown command ===")
+    response = send("HELLO")
+    check("|NACK|BADCMD|" in response, "Unknown command is rejected")
+    response = send("STATE")
+    check("|BOARD|.........|" in response, "Unknown command did not change the board")
 
-    response = send(seq, "HELLO")
-    seq += 1
-    check(
-        "|NACK|BADCMD|" in response,
-        "Unknown command is rejected"
-    )
+    # Test 5: NEW is refused during a game and allowed once it has ended.
+    print("\n=== Test 5: NEW during a game ===")
+    response = send("MOVE", "X,4")
+    check("|BOARD|....X....|" in response, "A legal move updates the board")
 
-    # Confirm that the unknown command did not change the board.
-    response = send(seq, "STATE")
-    seq += 1
-    check(
-        "|BOARD|.........|" in response,
-        "Unknown command did not change the board"
-    )
+    response = send("NEW")
+    check("|NACK|GAMEACTIVE|" in response, "NEW is refused while a game is active")
+    response = send("STATE")
+    check("|BOARD|....X....|" in response, "Refused NEW did not change the board")
 
-    # Test 5: NEW resets an existing game.
-    print("\n=== Test 5: NEW resets the board ===")
-
-    response = send(seq, "MOVE", "X,4")
-    seq += 1
-    check(
-        "|BOARD|....X....|" in response,
-        "A legal move updates the board"
-    )
-
-    response = send(seq, "NEW")
-    seq += 1
-    check("|OK|-" in response, "NEW resets the game")
-
-    response = send(seq, "STATE")
-    seq += 1
-    check(
-        "|BOARD|.........|" in response,
-        "Board is empty after NEW"
-    )
+    response = send("RESIGN")
+    check("|OK|GAMEOVER|" in response, "RESIGN ends the game")
+    response = send("NEW")
+    check("|OK|-" in response, "NEW is accepted after the game has ended")
+    response = send("STATE")
+    check("|BOARD|.........|" in response, "Board is empty after the new game starts")
 
     # Test 6: Rejects moves after a game has ended.
+    # The game started at the end of Test 5 is active and empty.
     print("\n=== Test 6: MOVE after game over ===")
+    for move in ["X,0", "O,3", "X,1", "O,4", "X,2"]:
+        response = send("MOVE", move)
+    check("|WIN|X," in response, "X wins after completing the top row")
 
-    #Start a new game
-    response = send(seq, "NEW")
-    seq += 1
-    check("|OK|-" in response,"NEW starts a new game")
-
-    moves = ["X,0","O,3","X,1","O,4","X,2"]
-
-    for move in moves:
-        response = send(seq,"MOVE",move)
-        seq+=1
-
-    check("WIN|X," in response, "X wins after completing the top row")
-
-    #a further move must be rejected
-    response = send(seq,"MOVE","O,5")
-    seq+=1
-
+    response = send("MOVE", "O,5")
     check("|NACK|NOGAME|" in response, "MOVE after game over is rejected")
 
-    print("\nINVALID COMMAND TESTS COMPLETED")
-
-
-
-
-
-
-
-
-
-
-
-    print("\nINVALID-COMMAND TESTS COMPLETED.")
+    print("\nINVALID-COMMAND TESTS PASSED!")
 
 finally:
     s.close()

@@ -9,6 +9,11 @@ def frame(seq, command, arguments="-"):
 with serial.Serial("COM5", 115200, timeout=1) as s:
     s.reset_input_buffer()
 
+    # Known starting state: CONNECT always returns the server to IDLE, so this
+    # test no longer depends on what an earlier test left behind.
+    s.write(frame(0x0FFF, "CONNECT"))
+    assert b"|OK|-|" in s.readline(), "Could not reset the server with CONNECT"
+
     def send(seq, command, arguments="-"):
         request = frame(seq, command, arguments)
         s.write(request)

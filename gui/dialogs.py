@@ -66,3 +66,25 @@ def ask(parent, title, text, yes_text="Yes", no_text="No"):
     box.setEscapeButton(no)
     box.exec()
     return box.clickedButton() == yes
+
+
+def choose(parent, title, text, first_text, second_text):
+    """Pick one of two actions, or cancel.
+
+    Returns "first", "second" or None. Esc and the window's X count as
+    Cancel, so they never pick either action by accident.
+    """
+    box = _make_box(parent, title, text, QMessageBox.Icon.Question)
+    first = box.addButton(first_text, QMessageBox.ButtonRole.AcceptRole)
+    second = box.addButton(second_text, QMessageBox.ButtonRole.AcceptRole)
+    cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(first)
+    box.setEscapeButton(cancel)
+    box.exec()
+
+    clicked = box.clickedButton()
+    if clicked == first:
+        return "first"
+    if clicked == second:
+        return "second"
+    return None

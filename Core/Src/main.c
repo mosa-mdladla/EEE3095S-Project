@@ -325,31 +325,6 @@ static void reset_to_idle(void){
     game_result = RESULT_NONE;
 }
 
-/*Button handler with debouncing*/
-static void button_update(void){
-    static GPIO_PinState last_read = GPIO_PIN_SET;
-    static GPIO_PinState stable_state = GPIO_PIN_SET;
-    static uint32_t last_change_tick = 0U;
-
-    GPIO_PinState reading = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);
-    uint32_t now = HAL_GetTick();
-    //looking out for any changes in button input
-    if(reading != last_read){
-        last_read = reading;
-        last_change_tick = now;
-    }
-
-    if((now - last_change_tick)>=30U && reading != stable_state){
-        stable_state = reading;
-        if((stable_state == GPIO_PIN_RESET) && (game_state == GAME_IDLE || game_state == GAME_OVER))
-        {
-            start_new_game();
-        }
-    }
-
-    
-}
-
 static void turn_leds_update(void){
     static GameState previous_state = (GameState)255;
     static uint32_t last_tick = 0U;
@@ -612,9 +587,16 @@ static void handle_frame(char *d)
             && strcmp(arguments, "-") == 0)
     {
         /*
-         * STATE reports the current board in every game state.
-         * In IDLE, the board should contain nine empty cells.
+         * STATE reports the current board while a game exists
+         * (IN_PROGRESS or GAME_OVER). In IDLE there is no game,
+         * so it is rejected with NOGAME.
          */
+        if (game_state == GAME_IDLE)
+        {
+            send_frame(seq, "NACK", "NOGAME");
+            return;
+        }
+
         send_frame(seq, "BOARD", game_board);
     }
     
@@ -843,7 +825,6 @@ int main(void)
 	      frameparser_init(&fp);
 	  }
     
-    button_update();
     turn_leds_update();
     leds_update();
     lcd_update();
@@ -965,12 +946,9 @@ HAL_GPIO_Init(GPIOB, &turn_led);
 /* Start with both turn-indicator LEDs off. */
 HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10 | GPIO_PIN_11,GPIO_PIN_RESET);
 
-/* SW0: active-low button with an internal pull-up. */
-GPIO_InitTypeDef button = {0};
-button.Pin = GPIO_PIN_0;
-button.Mode = GPIO_MODE_INPUT;
-button.Pull = GPIO_PULLUP;
-HAL_GPIO_Init(GPIOA, &button);
+/* No push-button inputs are configured. SW4 is the board's hardware reset
+   (NRST): pressing it reboots the server into IDLE. Nothing else on the
+   board can change the game; it is controlled only over the serial link. */
 
   GPIO_InitTypeDef lcd = {0};
   lcd.Mode  = GPIO_MODE_OUTPUT_PP;

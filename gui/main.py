@@ -6,13 +6,14 @@ from PySide6.QtWidgets import (QApplication, QPushButton, QLabel,
 from PySide6.QtCore import Qt, Signal, QTimer
 
 from gui.background import AnimatedBackground
-from gui.dialogs import show_message, confirm, ask
+from gui.dialogs import show_message, confirm, ask, choose
 from gui.game_widgets import BoardWidget, PlayerCard
 from gui.serial_worker import SerialWorker
 from gui.start_screen import StartScreen
 
 PORT = "COM5"
 POLL_MS = 1500                 # how often the board is checked while connected
+CLOSE_WAIT_MS = 3000           # longest the window waits for the board on close
 EMPTY_BOARD = "." * 9
 
 # Plain-English versions of the server's NACK codes
@@ -102,16 +103,12 @@ class GameWindow(AnimatedBackground):
         self.sync_button.setToolTip("Re-read the board from the STM32")
         self.sync_button.setFixedWidth(40)
 
-        self.disconnect_button = QPushButton("Change players")
-        self.disconnect_button.setObjectName("smallButton")
-
         centre_v = Qt.AlignmentFlag.AlignVCenter
         header = QHBoxLayout()
         header.setSpacing(8)
         header.addWidget(self.title_label, 1)
         header.addWidget(self.conn_label, 0, centre_v)
         header.addWidget(self.sync_button, 0, centre_v)
-        header.addWidget(self.disconnect_button, 0, centre_v)
 
         # ---------- player cards ----------
         self.card_x = PlayerCard("X")
@@ -170,7 +167,6 @@ class GameWindow(AnimatedBackground):
 
         # ---------- signals ----------
         self.sync_button.clicked.connect(self.get_state)
-        self.disconnect_button.clicked.connect(self.end_game)
         self.new_game_button.clicked.connect(self.new_game)
         self.end_game_button.clicked.connect(self.end_game)
 
@@ -542,20 +538,35 @@ class GameWindow(AnimatedBackground):
         self.send("NEW", "-", "Starting a new game...")
 
     def end_game(self):
-        """End game / Change players: back to the start screen."""
+        """End game: ask whether to start a new game or go to the main menu."""
         if not self.can_act():
             return
 
-        self.flow = "end"
         if self.game_active:
-            if not confirm(self, "End game?",
-                           "This ends the game and takes you back to the "
-                           "start screen.", "End game"):
-                self.flow = None
-                return
-            self.send("RESIGN", "-", "Ending the game...")
+            text = ("You are ending the current game.\n\n"
+                    "Start a new game, or go back to the main menu?")
         else:
-            self.send("DISCONNECT", "-", "Leaving...")
+            text = "Start a new game, or go back to the main menu?"
+
+        choice = choose(self, "End game", text, "New game", "Main menu")
+
+        # The board may have been lost while the dialog was open
+        if choice is None or not self.can_act():
+            return
+
+        if choice == "first":
+            if self.game_active:
+                self.flow = "new"            # RESIGN, then NEW
+                self.swap_on_new = False
+                self.send("RESIGN", "-", "Ending the current game...")
+            else:
+                self.new_game()              # Play again
+        else:
+            self.flow = "end"                # (RESIGN, then) DISCONNECT
+            if self.game_active:
+                self.send("RESIGN", "-", "Ending the game...")
+            else:
+                self.send("DISCONNECT", "-", "Leaving...")
 
     # ------------------------------------------------------------------
     # Replies
@@ -743,6 +754,16 @@ class GameWindow(AnimatedBackground):
         if self.reconnecting:
             self.fail_reconnect("nack")
             return
+        if sent in ("POLL", "STATE", "SYNC") and code == "NOGAME":
+            # The board is in IDLE: it was reset (SW4) or restarted
+            if self.game_active:
+                self.server_lost("reset")
+            elif sent != "POLL":
+                self.flow = None
+                self.status_label.setText(NACK_TEXT["NOGAME"])
+                self.finish_step()
+            return
+
         if sent == "POLL":
             return
 
@@ -840,13 +861,22 @@ class GameWindow(AnimatedBackground):
         self.new_game_button.setEnabled(ready)
         self.end_game_button.setEnabled(ready)
         self.sync_button.setEnabled(ready)
-        self.disconnect_button.setEnabled(ready)
 
         self.update_board_buttons()
 
     def closeEvent(self, event):
         self.poll_timer.stop()
-        self.drop_worker()
+
+        if self.connected and not self.lost and self.worker is not None:
+            worker, self.worker = self.worker, None
+            self.inflight.clear()
+            # RESIGN first: DISCONNECT is refused while a game is running.
+            # A failed RESIGN (NOGAME) or DISCONNECT is simply ignored.
+            worker.shutdown([("RESIGN", "-"), ("DISCONNECT", "-")])
+            worker.wait(CLOSE_WAIT_MS)
+        else:
+            self.drop_worker()
+
         event.accept()
 
 

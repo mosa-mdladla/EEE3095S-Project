@@ -39,11 +39,19 @@ class SerialWorker(QThread):
         #Queue that will store commands yet to be processed
         self.commands = Queue()
         self.client = None
+        self.closing = False
 
     def send_command(self,command,arguments="-"):
         self.commands.put((command,arguments))
 
     def stop(self):
+        self.commands.put(None)
+
+    def shutdown(self, commands):
+        """Send these commands, then stop. Used when the window closes."""
+        self.closing = True
+        for command, arguments in commands:
+            self.commands.put((command, arguments))
         self.commands.put(None)
 
     def run(self):
@@ -70,6 +78,8 @@ class SerialWorker(QThread):
                     self.response_received.emit(response_command,response_arguments)
                 except Exception as error:
                     self.error_occurred.emit(error_kind(error), str(error))
+                    if self.closing:
+                        break          # board not answering: give up and close
         finally:
             #serial connection closes when the worker/thread stops
             if self.client is not None:

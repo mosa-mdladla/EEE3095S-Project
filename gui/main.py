@@ -432,6 +432,12 @@ class GameWindow(AnimatedBackground):
             text = ("The connection to the STM32 board was lost. It may have "
                     "been unplugged or reset.")
 
+        # A popup that is already open (e.g. the winner message) would sit
+        # underneath this dialog and be stale anyway, so close it first
+        modal = QApplication.activeModalWidget()
+        if modal is not None:
+            modal.close()
+
         if self.resume_active:
             text += ("\n\nYour game has been kept. Reconnect to carry on "
                      "from where you left off, or go back to the main menu.")
@@ -480,6 +486,12 @@ class GameWindow(AnimatedBackground):
         self.game_active = was_active
         self.resume_active = False
         self.replay_moves.clear()
+        if not was_active:
+            # The board is in IDLE with an empty board: drop the finished
+            # game from the screen so both sides agree
+            self.board = ["."] * 9
+            self.game_over = False
+            self.result = None
         self.status_label.setText(
             "Reconnected. Your game is back." if was_active else "Reconnected.")
         self.finish_step()
@@ -735,8 +747,10 @@ class GameWindow(AnimatedBackground):
             self.fail_reconnect("nack")
             return
         if sent in ("POLL", "STATE", "SYNC") and code == "NOGAME":
-            # The board is in IDLE: it was reset (SW4) or restarted
-            if self.game_active:
+            # The board is in IDLE: it was reset (SW4) or restarted. That
+            # matters both mid-game and after a finished game, because the
+            # screen still shows a game the board no longer has.
+            if self.game_active or self.game_over:
                 self.server_lost("reset")
             elif sent != "POLL":
                 self.flow = None

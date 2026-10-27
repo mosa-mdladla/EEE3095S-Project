@@ -572,12 +572,21 @@ static void handle_frame(char *d)
     if (strcmp(command, "CONNECT") == 0
         && strcmp(arguments, "-") == 0)
     {
+        /* CONNECT always starts a clean session: the server goes to IDLE. */
+        reset_to_idle();
         send_frame(seq, "OK", "-");
     }
-    // Handle the NEW command.
+    // Handle the NEW command (allowed only in IDLE and GAME_OVER).
     else if (strcmp(command, "NEW") == 0
             && strcmp(arguments, "-") == 0)
     {
+        if (game_state == GAME_IN_PROGRESS)
+        {
+            /* A game is running: the client must RESIGN first. */
+            send_frame(seq, "NACK", "GAMEACTIVE");
+            return;
+        }
+
         start_new_game();
         send_frame(seq, "OK","-");
     }
@@ -609,24 +618,61 @@ static void handle_frame(char *d)
             return;
         }
 
-        if (strlen(arguments) != 3U
+        /* Argument shape must be <X|O>,<number>. Anything else is BADARG. */
+        if (arguments[0] == '\0'
             || arguments[1] != ','
-            || (arguments[0] != 'X' && arguments[0] != 'O')
-            || arguments[2] < '0'
-            || arguments[2] > '9')
+            || (arguments[0] != 'X' && arguments[0] != 'O'))
         {
             send_frame(seq, "NACK", "BADARG");
             return;
         }
 
-        /* Converts the requested cell character into an index. */
-        uint8_t move_index = (uint8_t)(arguments[2] - '0');
+        /* Parse the number: optional '-', then digits only. */
+        const char *num = &arguments[2];
+        uint8_t negative = 0U;
 
-        if (move_index > 8U)
+        if (*num == '-')
+        {
+            negative = 1U;
+            num++;
+        }
+
+        if (*num == '\0')
+        {
+            send_frame(seq, "NACK", "BADARG");
+            return;
+        }
+
+        int32_t value = 0;
+
+        for (; *num != '\0'; num++)
+        {
+            if (*num < '0' || *num > '9')
+            {
+                send_frame(seq, "NACK", "BADARG");
+                return;
+            }
+
+            /* Stop growing once clearly out of range so it cannot overflow. */
+            if (value < 1000)
+            {
+                value = (value * 10) + (*num - '0');
+            }
+        }
+
+        if (negative != 0U)
+        {
+            value = -value;
+        }
+
+        /* A well-formed number outside 0-8 (e.g. 9, 12, -1) is out of range. */
+        if (value < 0 || value > 8)
         {
             send_frame(seq, "NACK", "RANGE");
             return;
         }
+
+        uint8_t move_index = (uint8_t)value;
 
         /* Rejects a move from the wrong player. */
         if (arguments[0] != current_player)

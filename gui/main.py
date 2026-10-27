@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QApplication, QPushButton, QLabel,
 from PySide6.QtCore import Qt, Signal, QTimer
 
 from gui.background import AnimatedBackground
-from gui.dialogs import show_message, confirm, ask, choose
+from gui.dialogs import show_message, confirm, ask
 from gui.game_widgets import BoardWidget, PlayerCard
 from gui.serial_worker import SerialWorker
 from gui.start_screen import StartScreen
@@ -538,35 +538,15 @@ class GameWindow(AnimatedBackground):
         self.send("NEW", "-", "Starting a new game...")
 
     def end_game(self):
-        """End game: ask whether to start a new game or go to the main menu."""
+        """End game: no pop-up. Leave the game and return the server to IDLE."""
         if not self.can_act():
             return
 
+        self.flow = "end"                    # (RESIGN, then) DISCONNECT
         if self.game_active:
-            text = ("You are ending the current game.\n\n"
-                    "Start a new game, or go back to the main menu?")
+            self.send("RESIGN", "-", "Ending the game...")
         else:
-            text = "Start a new game, or go back to the main menu?"
-
-        choice = choose(self, "End game", text, "New game", "Main menu")
-
-        # The board may have been lost while the dialog was open
-        if choice is None or not self.can_act():
-            return
-
-        if choice == "first":
-            if self.game_active:
-                self.flow = "new"            # RESIGN, then NEW
-                self.swap_on_new = False
-                self.send("RESIGN", "-", "Ending the current game...")
-            else:
-                self.new_game()              # Play again
-        else:
-            self.flow = "end"                # (RESIGN, then) DISCONNECT
-            if self.game_active:
-                self.send("RESIGN", "-", "Ending the game...")
-            else:
-                self.send("DISCONNECT", "-", "Leaving...")
+            self.send("DISCONNECT", "-", "Leaving...")
 
     # ------------------------------------------------------------------
     # Replies
